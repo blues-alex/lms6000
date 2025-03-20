@@ -49,6 +49,7 @@ type LMS6000 struct {
 
 type SerialDevice interface {
 	Write([]byte) (int, error)
+	Read([]byte) (int, error)
 	ReadMessage() ([]byte, error)
 	Close() error
 }
