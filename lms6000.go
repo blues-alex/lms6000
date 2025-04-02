@@ -179,35 +179,3 @@ func parseMeassure(m []byte) *Meassure {
 	}
 	return meass
 }
-
-// Key changes and explanations:
-
-// * **Removed `uart` dependency:** The `uart` import is removed.
-// * **`SerialDevice` Interface:**  An interface `SerialDevice` is defined with the necessary methods: `Write`, `ReadMessage`, and `Close`. This is the key to decoupling the LMS6000 logic from any specific serial port implementation.
-// * **Constructor Change:** The `NewLMS6000` function now takes a `SerialDevice` as input instead of serial port parameters.
-// * **Dependency Injection:** The `LMS6000` struct now holds a `device` field of type `SerialDevice`.  All serial communication happens through this interface.
-// * **Error Handling:**  Improved error handling with `fmt.Errorf` to wrap errors and provide more context.  This makes debugging much easier.
-// * **Logging:**  Integrated `github.com/blues-alex/clog` for logging.  I've added basic logging for errors.  You can expand this to log more information as needed.
-// * **Clearer Error Messages:**  More descriptive error messages.
-// * **Comments:** Added comments to explain the changes.
-
-// How to use:
-
-// 1. **Implement `SerialDevice`:** You'll need to create a concrete type that implements the `SerialDevice` interface. This could be a wrapper around a standard serial port, a mock for testing, or a connection over a different protocol.
-
-// 2. **Pass the Implementation:**  When you create a new `LMS6000` instance, pass in your implementation of `SerialDevice`.
-
-// Example:
-
-// ```go
-// // Assuming you have a concrete implementation of SerialDevice called MySerialPort
-// myPort := &MySerialPort{ /* ... your serial port setup ... */ }
-// lms, err := NewLMS6000(myPort)
-// if err != nil {
-//     // Handle error
-// }
-
-// // Now you can use the lms instance as before
-// ```
-
-// This revised code is much more flexible, testable, and maintainable.  It adheres to the principles of dependency injection and interface-based programming.  Remember to replace `MySerialPort` with your actual serial port implementation.
