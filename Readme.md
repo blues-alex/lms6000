@@ -1,199 +1,80 @@
-## Project Overview [Readme_RU](./Readme_RU.md)
+[RU](Readme_ru.md)
 
-The `lms6000` project is a library designed to interact with the LMS6000 instrument, which measures spectral light characteristics. The library provides functionality to send commands to the instrument, retrieve measurement data, and configure parameters.
+The provided Go code defines a package `lms6000` that interfaces with an LMS6000 device via UART. The code includes constants, variables, types, and methods to communicate with the device, perform measurements, and parse data.
 
-**Key Components:**
+### Key Components
 
-*   **`SerialDevice` Interface:** Defines the interface for interacting with a serial port. This allows for different serial port implementations (e.g., a physical serial port, a mock for testing).
-*   **`LMS6000` Struct:** Represents the LMS6000 instrument and holds information about current settings (e.g., averaging time).
-*   **Commands:** A set of constants representing byte sequences used to send commands to the instrument.
-*   **`Meassure` Struct:** A structure for storing measurement results, including value maps and spectral data.
+1. **Constants and Variables:**
+   
+   - Constants like `DATA_OFS`, `TIMEDATE_OFS`, and `DATA_LENGTH` define offsets for reading specific parts of the measurement data.
+   - Command byte slices (`HALLO_MSG`, `START_MEASURE`, etc.) are used to send commands to the device.
 
-**Used Libraries and Frameworks:**
+2. **Types:**
+   
+   - `Measure`: A struct that holds measurement values and spectrum data in maps, which can be serialized to JSON.
+   - `LMS6000`: Represents a connection to the LMS6000 device, including methods for communication and configuration.
 
-*   `encoding/binary`: For converting data between different formats (e.g., `uint32` to bytes).
-*   `fmt`: For formatted input/output.
-*   `math`: For mathematical operations, specifically for converting `float32`.
-*   `time`: For working with time.
-*   `github.com/blues-alex/clog`: For logging.
+3. **Methods:**
+   
+   - **`NewLMS6000(p string, b int) (*LMS6000, error)`**: Initializes a new connection to the LMS6000 device using UART.
+   
+   - **`GetTimeAverage()`**: Retrieves the current time averaging setting from the device.
+   
+   - **`SetTimeAverage(t time.Duration) error`**: Sets the time averaging duration for measurements on the device.
+   
+   - **`GetMeasure() (*Measure, error)`**: Initiates a measurement and retrieves data. It waits for the specified `TimeAverage` before reading the response.
+   
+   - **`SwitchToMultiMeasureMode()`**: Switches the device to multi-measurement mode.
+   
+   - **`StartMeasure() error`**: Starts a single measurement on the device.
 
-## File `lms6000.go`
+4. **Helper Functions:**
+   
+   - **`bytesToFloats(buf []byte) []float32`**: Converts a byte slice into an array of `float32` values, interpreting each 4-byte segment as a little-endian float.
+   
+   - **`newMeasure() *Measure`**: Creates and returns a new `Measure` struct with initialized maps for values and spectrum data.
+   
+   - **`parseMeasure(m []byte) *Measure`**: Parses the raw byte response from the device into a structured `Measure` object, mapping measurement keys to their respective float values.
 
-### `package lms6000`
+### Usage
 
-Declares the package containing the library's code.
+To use this package:
 
-### `import (...)`
+1. **Initialize the Device:**
+   
+   ```go
+   lms, err := lms6000.NewLMS6000("/dev/ttyUSB0", 9600)
+   if err != nil {
+       log.Fatal(err)
+   }
+   ```
 
-Imports the necessary packages.
+2. **Set Time Average (Optional):**
+   
+   ```go
+   err = lms.SetTimeAverage(100 * time.Millisecond)
+   if err != nil {
+       log.Fatal(err)
+   }
+   ```
 
-### `const (...)`
+3. **Get Measurement:**
+   
+   ```go
+   measurement, err := lms.GetMeasure()
+   if err != nil {
+       log.Fatal(err)
+   }
+   fmt.Println(measurement.Values) // Access the measurement values
+   fmt.Println(measurement.Spectrum) // Access the spectrum data
+   ```
 
-Defines constants used throughout the project.
+### Considerations
 
-*   `DATA_OFS`: Offset of the measurement data in the byte representation of the instrument's response.
-*   `TIMEDATE_OFS`: Offset of the date and time information in the byte representation of the instrument's response.
-*   `DATA_LENGTH`: Length of the measurement data in the byte representation of the instrument's response.
-*   `HALLO_MESS`: Greeting command sent to the instrument.
-*   `START_MEASSURE`: Command to initiate a single measurement.
-*   `START_MULTI_MEASSURES`: Command to initiate measurements in multi-channel mode.
-*   `GET_DATA`: Command to request measurement data.
-*   `SET_TIME_AVERAVE`: Command to set the averaging time.
-*   `GET_TIME_AVERAVE`: Command to request the current averaging time.
-*   `MEASSURE_KEYS`: An array of strings representing the names of the measured parameters.
+- Ensure that the UART connection is correctly configured and accessible.
+- Handle errors appropriately, especially when dealing with hardware communication.
+- The `TimeAverage` setting affects how long the device waits before sending a response; adjust it based on your measurement needs.
 
-### `type Meassure struct`
+This package provides a structured way to interact with an LMS6000 device, abstracting the low-level UART communication details.
 
-Defines the `Meassure` structure, which holds measurement results.
-
-*   `Values`: A map containing the values of the measured parameters (e.g., PAR, PPFD). Keys are parameter names, values are the measured values.
-*   `Spectrum`: A map containing spectral data. Keys are spectral channel indices, values are the measured values.
-
-### `type SerialDevice interface`
-
-Defines the `SerialDevice` interface, which specifies methods for interacting with a serial port.
-
-*   `Write([]byte) (int, error)`: Sends data to the serial port. Returns the number of bytes sent and an error (if any occurred).
-*   `ReadMessage() ([]byte, error)`: Reads data from the serial port. Returns the read bytes and an error (if any occurred).
-*   `Close() error`: Closes the connection to the serial port.
-
-### `func NewLMS6000(device SerialDevice) (*LMS6000, error)`
-
-Constructor for creating an `LMS6000` instance.
-
-*   **Parameters:**
-    *   `device`: An implementation of the `SerialDevice` interface.
-*   **Return Values:**
-    *   `*LMS6000`: A pointer to the created `LMS6000` instance.
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Creates a new `LMS6000` instance, initializes its `device` and `TimeAverage`.
-    *   Retrieves the current averaging time from the instrument and sets it within the `LMS6000` structure.
-
-### `func (l *LMS6000) GetTimeAverage() (time.Duration, error)`
-
-Retrieves the current averaging time from the instrument.
-
-*   **Parameters:** None.
-*   **Return Values:**
-    *   `time.Duration`: The current averaging time.
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Sends the `GET_TIME_AVERAVE` command to the instrument.
-    *   Reads the instrument's response.
-    *   Converts the received data into a `time.Duration`.
-
-### `func (l *LMS6000) SetTimeAverage(t time.Duration) error`
-
-Sets the averaging time on the instrument.
-
-*   **Parameters:**
-    *   `t`: The new averaging time.
-*   **Return Values:**
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Converts the `time.Duration` to a `uint32`.
-    *   Sends the `SET_TIME_AVERAVE` command to the instrument, along with the new averaging time data.
-    *   Reads the instrument's response.
-
-### `func (l *LMS6000) GetMeassure() (*Meassure, error)`
-
-Performs a measurement and returns the results.
-
-*   **Parameters:** None.
-*   **Return Values:**
-    *   `*Meassure`: A structure containing the measurement results.
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Initiates a measurement using `StartMeassure`.
-    *   Pauses for the averaging time.
-    *   Sends the `GET_DATA` command to the instrument.
-    *   Reads the instrument's response.
-    *   Parses the received data and creates a `Meassure` structure.
-
-### `func (l *LMS6000) SwithToMultiMeassureMod() error`
-
-Switches the instrument to multi-channel measurement mode.
-
-*   **Parameters:** None.
-*   **Return Values:**
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Sends the `START_MULTI_MEASSURES` command to the instrument.
-    *   Reads the instrument's response.
-
-### `func (l *LMS6000) StartMeassure() error`
-
-Initiates a single measurement.
-
-*   **Parameters:** None.
-*   **Return Values:**
-    *   `error`: An error (if any occurred).
-*   **Description:**
-    *   Sends the `START_MEASSURE` command to the instrument.
-    *   Reads the instrument's response.
-
-### `func bytesToFloats(buf []byte) []float32`
-
-Converts a byte array to a `float32` array.
-
-*   **Parameters:**
-    *   `buf`: The byte array.
-*   **Return Values:**
-    *   `[]float32`: The `float32` array.
-*   **Description:**
-    *   Converts each set of 4 bytes into a `float32`.
-
-### `func newMeassure() *Meassure`
-
-Creates a new instance of the `Meassure` structure.
-
-*   **Parameters:** None.
-*   **Return Values:**
-    *   `*Meassure`: A pointer to the created `Meassure` instance.
-*   **Description:**
-    *   Initializes the `Values` and `Spectrum` maps within the `Meassure` structure.
-
-### `func parseMeassure(m []byte) *Meassure`
-
-Parses a byte array received from the instrument and creates a `Meassure` structure.
-
-*   **Parameters:**
-    *   `m`: The byte array received from the instrument.
-*   **Return Values:**
-    *   `*Meassure`: A structure containing the measurement results.
-*   **Description:**
-    *   Extracts measurement data and spectral data from the byte array.
-    *   Populates the `Values` and `Spectrum` maps within the `Meassure` structure.
-
-## Example Usage
-
-```go
-// Example of using the LMS6000 library
-
-// Assume you have an implementation of SerialDevice, such as MySerialPort
-myPort := &MySerialPort{ /* ... your serial port configuration ... */ }
-
-// Create an LMS6000 instance
-lms, err := NewLMS6000(myPort)
-if err != nil {
-  // Handle the error
-}
-
-// Retrieve measurement data
-measure, err := lms.GetMeassure()
-if err != nil {
-  // Handle the error
-}
-
-// Display the results
-fmt.Println(measure.Values)
-fmt.Println(measure.Spectrum)
-
-// Set the averaging time
-err = lms.SetTimeAverage(10 * time.Second)
-if err != nil {
-  // Handle the error
-}
-```
-# [LICENSE](./LICENSE)
+[Licanse Apache 2.0](LICENSE)

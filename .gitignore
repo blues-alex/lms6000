@@ -21,12 +21,8 @@
 go.work
 go.work.sum
 
-# Log files
-*.log
-
 # Sum files
 *.sum
-*.mod
 
 # env file
 .env

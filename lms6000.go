@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"math"
 	"time"
-
-	"github.com/blues-alex/clog"
+	"uart"
 )
 
 const (
-	// meassure values offsets
+	// measure values offsets
 	DATA_OFS     = 0x24
 	TIMEDATE_OFS = 0xd4
 	DATA_LENGTH  = 0x18
@@ -18,15 +17,15 @@ const (
 
 var (
 	// Commands
-	HALLO_MESS            = []byte{0x8c, 0x00}       //b'\x8c\x00'
-	START_MEASSURE        = []byte{0x8c, 0x0e, 0x01} // b'\x8c\x0e\x01'
-	START_MULTI_MEASSURES = []byte{0x8c, 0x0e}       // b'\x8c\x0e'
-	GET_DATA              = []byte{0x8c, 0x13}       // b'\x8c\x13'
-	SET_TIME_AVERAVE      = []byte{0x8c, 0x01}       // b'\x8c\x01'
-	GET_TIME_AVERAVE      = []byte{0x8c, 0x05}       // b'\x8c\x05'
+	HALLO_MSG            = []byte{0x8c, 0x00}       //b'\x8c\x00'
+	START_MEASURE        = []byte{0x8c, 0x0e, 0x01} // b'\x8c\x0e\x01'
+	START_MULTI_MEASURES = []byte{0x8c, 0x0e}       // b'\x8c\x0e'
+	GET_DATA             = []byte{0x8c, 0x13}       // b'\x8c\x0x13'
+	SET_TIME_AVERAGE     = []byte{0x8c, 0x01}       // b'\x8c\x01'
+	GET_TIME_AVERAGE     = []byte{0x8c, 0x05}       // b'\x8c\x05'
 
 	// list of values
-	MEASSURE_KEYS = []string{
+	MEASURE_KEYS = []string{
 		"PAR", "PPFD", "YPFD", "Ep", "Eb", "Ey", "Er",
 		"Erb Ratio", "E(lx)", "E(fc)", "CCT", "Duv",
 		"x", "y", "u", "v", "u'", "v'", "SDCM", "Ra",
@@ -37,48 +36,43 @@ var (
 	} // 43 values
 )
 
-type Meassure struct {
+type Measure struct {
 	Values   map[string]float64 `json:"values"`
 	Spectrum map[string]float64 `json:"spectrum"`
 }
 
 type LMS6000 struct {
-	device      SerialDevice
+	uart.SerialDevice
 	TimeAverage time.Duration
 }
 
-type SerialDevice interface {
-	Write([]byte) (int, error)
-	Read([]byte) (int, error)
-	ReadMessage() ([]byte, error)
-	Close() error
-}
-
-func NewLMS6000(device SerialDevice) (*LMS6000, error) {
-	lms := &LMS6000{
-		device:      device,
-		TimeAverage: time.Second / 1000,
-	}
-
-	timeAverage, err := lms.GetTimeAverage()
+func NewLMS6000(p string, b int) (*LMS6000, error) {
+	port, err := uart.NewConnect(p, b)
 	if err != nil {
-		clog.Error("Failed to get time average:", err)
 		return nil, err
 	}
-	lms.TimeAverage = timeAverage
-
-	return lms, nil
+	lms := &LMS6000{
+		port,
+		time.Second / 1000,
+	}
+	lms.TimeAverage, err = lms.GetTimeAverage()
+	return lms, err
 }
 
 func (l *LMS6000) GetTimeAverage() (time.Duration, error) {
-	_, err := l.device.Write(GET_TIME_AVERAVE)
+	l.ReadMessage()
+	_, err := l.Write(GET_TIME_AVERAGE)
 	if err != nil {
-		return time.Second, fmt.Errorf("failed to write GET_TIME_AVERAVE command: %w", err)
+		return time.Second, err
 	}
 
-	ans, err := l.device.ReadMessage()
+	ans, err := l.ReadMessage()
 	if err != nil {
-		return time.Second, fmt.Errorf("failed to read response for GET_TIME_AVERAVE: %w", err)
+		return time.Second, err
+	}
+
+	if len(ans) < 6 {
+		return time.Second, fmt.Errorf("response too short")
 	}
 
 	tm := binary.LittleEndian.Uint32(ans[2:6])
@@ -89,58 +83,58 @@ func (l *LMS6000) GetTimeAverage() (time.Duration, error) {
 func (l *LMS6000) SetTimeAverage(t time.Duration) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, uint32(t.Microseconds()))
-	res := append(SET_TIME_AVERAVE, buf...)
+	res := append(SET_TIME_AVERAGE, buf...)
 
-	_, err := l.device.Write(res)
+	_, err := l.Write(res)
 	if err != nil {
-		return fmt.Errorf("failed to write SET_TIME_AVERAVE command: %w", err)
+		return err
 	}
 	l.TimeAverage = t
-	_, err = l.device.ReadMessage()
+	_, err = l.ReadMessage()
 	return err
 }
 
-func (l *LMS6000) GetMeassure() (*Meassure, error) {
-	err := l.StartMeassure()
+func (l *LMS6000) GetMeasure() (*Measure, error) {
+	err := l.StartMeasure()
 	if err != nil {
-		return nil, fmt.Errorf("failed to start measurement: %w", err)
+		return nil, err
 	}
 
-	time.Sleep((l.TimeAverage * 4) * time.Nanosecond)
-
-	_, err = l.device.Write(GET_DATA)
+	_, err = l.Write(GET_DATA)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write GET_DATA command: %w", err)
+		return nil, err
 	}
-
-	m, err := l.device.ReadMessage()
+	time.Sleep(l.TimeAverage)
+	m, err := l.ReadMessage()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read measurement data: %w", err)
+		return nil, err
 	}
 
 	if len(m) > DATA_OFS+TIMEDATE_OFS+DATA_LENGTH+(450*4) {
-		return parseMeassure(m), nil
+
+		return parseMeasure(m), nil
 	}
-	return nil, fmt.Errorf("failed to get measurement data: insufficient data length")
+	return nil, fmt.Errorf("ERROR: Failed to get measurement data.")
 }
 
-func (l *LMS6000) SwithToMultiMeassureMod() error {
-	_, err := l.device.Write(START_MULTI_MEASSURES)
+func (l *LMS6000) SwitchToMultiMeasureMode() error {
+	_, err := l.Write(START_MULTI_MEASURES)
 	if err != nil {
-		return fmt.Errorf("failed to write START_MULTI_MEASSURES command: %w", err)
+		return err
 	}
 
-	_, err = l.device.ReadMessage()
+	_, err = l.ReadMessage()
 	return err
 }
 
-func (l *LMS6000) StartMeassure() error {
-	_, err := l.device.Write(START_MEASSURE)
+func (l *LMS6000) StartMeasure() error {
+	_, err := l.Write(START_MEASURE)
 	if err != nil {
-		return fmt.Errorf("failed to write START_MEASSURE command: %w", err)
+		return err
 	}
 
-	_, err = l.device.ReadMessage()
+	_, err = l.ReadMessage()
+
 	return err
 }
 
@@ -148,34 +142,41 @@ func bytesToFloats(buf []byte) []float32 {
 	if len(buf) == 0 {
 		return nil
 	}
-	res := []float32{}
+	res := make([]float32, 0, len(buf)/4)
 
 	for i := 4; i < len(buf)-4; i += 4 {
 		bt := buf[i : i+4]
 		bits := binary.LittleEndian.Uint32(bt)
-		float := math.Float32frombits(bits)
-		res = append(res, float)
+		f := math.Float32frombits(bits)
+		res = append(res, f)
 	}
 	return res
 }
 
-func newMeassure() *Meassure {
-	m := Meassure{}
+func newMeasure() *Measure {
+	m := Measure{}
 	m.Values = map[string]float64{}
 	m.Spectrum = map[string]float64{}
 	return &m
 }
 
-func parseMeassure(m []byte) *Meassure {
+func parseMeasure(m []byte) *Measure {
 	spectrumOfs := DATA_OFS + TIMEDATE_OFS + DATA_LENGTH
+	minLen := spectrumOfs + 452*4
+	if len(m) < minLen {
+		return nil
+	}
 	data := bytesToFloats(m[DATA_OFS : TIMEDATE_OFS+4])
 	spectrum := bytesToFloats(m[spectrumOfs : spectrumOfs+(452*4)])
-	meass := newMeassure()
+	meas := newMeasure()
 	for n, v := range data {
-		meass.Values[MEASSURE_KEYS[n]] = float64(v)
+		if n >= len(MEASURE_KEYS) {
+			break
+		}
+		meas.Values[MEASURE_KEYS[n]] = float64(v)
 	}
 	for n, v := range spectrum {
-		meass.Spectrum[fmt.Sprintf("%d", n+350)] = float64(v)
+		meas.Spectrum[fmt.Sprintf("%d", n+350)] = float64(v)
 	}
-	return meass
+	return meas
 }
